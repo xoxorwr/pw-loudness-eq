@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Loudness Equalization
+Comment=Turn loudness equalization on or off, globally or per app
+Exec=pw-loudness-eq
+Icon=audio-volume-high
+Terminal=false
+Categories=AudioVideo;Audio;Settings;
+Keywords=pipewire;loudness;volume;normalize;
+StartupWMClass=pw-loudness-eq

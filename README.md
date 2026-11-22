@@ -1,18 +1,29 @@
 # pw-loudness-eq
 
-Windows' Loudness Equalization for PipeWire, ported from `WMALFXGFXDSP.dll`.
+Windows' Loudness Equalization for PipeWire, ported from `WMALFXGFXDSP.dll`. It evens out volume per application, so quiet and loud parts play at a similar level, with a small window to turn it on or off globally or per app.
+
+<p align="center">
+  <img src="docs/screenshot.png" alt="The Loudness Equalization window">
+</p>
+
+Two parts:
+
+- **[`module/`](module)**: the PipeWire module and the LADSPA plugin that does the processing. It runs inside PipeWire and applies the effect to every application's playback stream.
+- **[`app/`](app)**: the **Loudness Equalization** window (`pw-loudness-eq`), a small GTK3 program for turning it on or off, globally or per app, and setting the release time. It's optional: the module works without it, and everything it does can also be done with `pw-metadata`.
 
 ## Install
 
-Requires PipeWire ≥ 1.4.
+Requires PipeWire ≥ 1.4 and, for the window, GTK 3.
 
 ```sh
-# Arch:   sudo pacman -S pipewire pkgconf make gcc
-# Debian: sudo apt install libpipewire-0.3-dev libspa-0.2-dev pkg-config make gcc
+# Arch:   sudo pacman -S pipewire gtk3 pkgconf make gcc
+# Debian: sudo apt install libpipewire-0.3-dev libspa-0.2-dev libgtk-3-dev pkg-config make gcc
 make
 sudo make install
 systemctl --user restart pipewire pipewire-pulse wireplumber
 ```
+
+This installs both parts. To install only one: `make -C module && sudo make -C module install`, or the same with `app`.
 
 Uninstall: `sudo make uninstall`, then restart the same services.
 
@@ -28,8 +39,25 @@ Edit `/usr/share/pipewire/pipewire.conf.d/60-loudness-eq.conf`. For a per-user o
 
 | Arg | Default | |
 |---|---|---|
+| `enabled` | `true` | Start enabled |
 | `release` | `4` | Windows "Release Time", 2 (fast) to 7 (slow). 4 is the Windows default |
-| `stream.rules` | | Exclude apps: `[ { matches = [ { application.name = "Discord" } ] actions = { loudness-eq = false } } ]` |
+| `stream.rules` | | Exclude apps entirely: `[ { matches = [ { application.name = "Discord" } ] actions = { loudness-eq = false } } ]` |
+
+## Turning it on and off
+
+Open **Loudness Equalization** from your application menu, or run `pw-loudness-eq`. It has a global checkbox, the release time and a checkbox for each app playing audio.
+
+The same settings are in a PipeWire metadata object, so scripts can use them too:
+
+```sh
+pw-metadata -n loudness-eq 0 enabled false                               # off
+pw-metadata -n loudness-eq 0 enabled true                                # on
+pw-metadata -n loudness-eq 0 release 6                                   # release time
+pw-metadata -n loudness-eq 0 disabled-apps '["Discord"]' Spa:String:JSON  # off for these apps
+pw-metadata -n loudness-eq                                               # show settings and per-stream state
+```
+
+Changes apply immediately and are saved to `~/.local/state/pw-loudness-eq/state.conf`, which takes precedence over the config file on the next start. Deleting a key (`pw-metadata -n loudness-eq -d 0 enabled`) restores the config value. Per-app switches use `application.name` (or `node.name` when it's missing).
 
 ## How it works
 
@@ -64,7 +92,7 @@ module/build/leq-wav [-r release] in.wav out.wav  # process a file offline
 
 Layout:
 - `module/` PipeWire module and LADSPA DSP plugin (`src/`, `conf/`, `tests/`, `tools/`)
-- `app/` control and monitor GUI
+- `app/` control window: GTK3, no libadwaita, talks to the module only through the `loudness-eq` metadata
 
 `make` at the top level builds every component; each folder also builds on its own (`make -C module`).
 
