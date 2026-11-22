@@ -1,19 +1,17 @@
 # pw-loudness-eq
 
-Windows' Loudness Equalization for PipeWire, ported from `WMALFXGFXDSP.dll`. It evens out volume per application, so quiet and loud parts play at a similar level, with a small window to turn it on or off globally or per app.
+Windows' Loudness Equalization, fully decompiled from `WMALFXGFXDSP.dll` and ported to PipeWire. It evens out the volume of each application, so quiet and loud parts play at a similar level.
 
 <p align="center">
   <img src="docs/screenshot.png" alt="The Loudness Equalization window">
 </p>
 
-Two parts:
-
-- **[`module/`](module)**: the PipeWire module and the LADSPA plugin that does the processing. It runs inside PipeWire and applies the effect to every application's playback stream.
-- **[`app/`](app)**: the **Loudness Equalization** window (`pw-loudness-eq`), a small GTK3 program for turning it on or off, globally or per app, and setting the release time. It's optional: the module works without it, and everything it does can also be done with `pw-metadata`.
+- **[`module/`](module)**: the PipeWire module and the DSP plugin. It processes every app's playback stream.
+- **[`app/`](app)**: an optional window (GTK3) to turn it on or off, globally or per app, and set the release time.
 
 ## Install
 
-Requires PipeWire ≥ 1.4 and, for the window, GTK 3.
+Requires PipeWire ≥ 1.4, and GTK 3 for the window.
 
 ```sh
 # Arch:   sudo pacman -S pipewire gtk3 pkgconf make gcc
@@ -23,53 +21,42 @@ sudo make install
 systemctl --user restart pipewire pipewire-pulse wireplumber
 ```
 
-This installs both parts. To install only one: `make -C module && sudo make -C module install`, or the same with `app`.
+To install only one part, use `make -C module` or `make -C app`. To uninstall, run `sudo make uninstall` and restart the same services.
 
-Uninstall: `sudo make uninstall`, then restart the same services.
+## Usage
 
-Check it's running:
+Open **Loudness Equalization** from your application menu, or run `pw-loudness-eq`.
+
+The settings live in a PipeWire metadata object, so they can also be scripted:
 
 ```sh
-journalctl --user -u pipewire | grep loudness-eq   # "applying to stream ... (<app>)"
+pw-metadata -n loudness-eq 0 enabled false                               # turn off
+pw-metadata -n loudness-eq 0 release 6                                   # release time, 2 (fast) to 7 (slow)
+pw-metadata -n loudness-eq 0 disabled-apps '["Discord"]' Spa:String:JSON  # leave these apps alone
+pw-metadata -n loudness-eq                                               # show settings
 ```
+
+Changes apply immediately and are kept across restarts.
 
 ## Configuration
 
-Edit `/usr/share/pipewire/pipewire.conf.d/60-loudness-eq.conf`. For a per-user override, copy it to `~/.config/pipewire/pipewire.conf.d/` under the same name.
+Defaults are in `/usr/share/pipewire/pipewire.conf.d/60-loudness-eq.conf`. To override them, copy it to `~/.config/pipewire/pipewire.conf.d/`.
 
 | Arg | Default | |
 |---|---|---|
 | `enabled` | `true` | Start enabled |
 | `release` | `4` | Windows "Release Time", 2 (fast) to 7 (slow). 4 is the Windows default |
-| `stream.rules` | | Exclude apps entirely: `[ { matches = [ { application.name = "Discord" } ] actions = { loudness-eq = false } } ]` |
+| `stream.rules` | | Never process some apps: `[ { matches = [ { application.name = "Discord" } ] actions = { loudness-eq = false } } ]` |
 
-## Turning it on and off
-
-Open **Loudness Equalization** from your application menu, or run `pw-loudness-eq`. It has a global checkbox, the release time and a checkbox for each app playing audio.
-
-The same settings are in a PipeWire metadata object, so scripts can use them too:
-
-```sh
-pw-metadata -n loudness-eq 0 enabled false                               # off
-pw-metadata -n loudness-eq 0 enabled true                                # on
-pw-metadata -n loudness-eq 0 release 6                                   # release time
-pw-metadata -n loudness-eq 0 disabled-apps '["Discord"]' Spa:String:JSON  # off for these apps
-pw-metadata -n loudness-eq                                               # show settings and per-stream state
-```
-
-Changes apply immediately and are saved to `~/.local/state/pw-loudness-eq/state.conf`, which takes precedence over the config file on the next start. Deleting a key (`pw-metadata -n loudness-eq -d 0 enabled`) restores the config value. Per-app switches use `application.name` (or `node.name` when it's missing).
+Settings changed at runtime are saved in `~/.local/state/pw-loudness-eq/state.conf` and take precedence over this file.
 
 ## How it works
 
-- `pw_loudness_eq.so` (LADSPA, installed to `/usr/lib/ladspa`) contains the DSP.
-- `libpipewire-module-loudness-eq.so` watches app playback streams and sets `audioconvert.filter-graph.90` on each one, so the plugin runs inside that stream, before its volume and before mixing.
+The module sets `audioconvert.filter-graph.90` on each app's playback stream, so the plugin runs inside that stream, before its volume and before mixing, like a Windows stream effect.
 
-Not processed:
-- JACK clients
-- streams with more than 8 channels
-- Flatpak apps using PipeWire natively (Flatpak apps using PulseAudio are processed)
+Not processed: JACK clients, streams with more than 8 channels, and Flatpak apps that use PipeWire directly (those going through PulseAudio are processed).
 
-## The algorithm
+### The algorithm
 
 A broadband automatic gain control. Despite the name, it doesn't equalize the spectrum.
 
@@ -86,13 +73,6 @@ There's no limiter, so pure tones can go above 0 dBFS (Windows does the same).
 ## Development
 
 ```sh
-make check                                         # DSP + plugin tests
+make check                                         # DSP and plugin tests
 module/build/leq-wav [-r release] in.wav out.wav  # process a file offline
 ```
-
-Layout:
-- `module/` PipeWire module and LADSPA DSP plugin (`src/`, `conf/`, `tests/`, `tools/`)
-- `app/` control window: GTK3, no libadwaita, talks to the module only through the `loudness-eq` metadata
-
-`make` at the top level builds every component; each folder also builds on its own (`make -C module`).
-
