@@ -58,6 +58,13 @@ There's no limiter, so pure tones can go above 0 dBFS (Windows does the same).
 ## Development
 
 ```sh
-make check                                  # DSP + plugin tests
-build/leq-wav [-r release] in.wav out.wav   # process a file offline
+make check                                         # DSP + plugin tests
+module/build/leq-wav [-r release] in.wav out.wav  # process a file offline
 ```
+
+Layout:
+- `module/` PipeWire module and LADSPA DSP plugin (`src/`, `conf/`, `tests/`, `tools/`)
+- `app/` control and monitor GUI
+
+`make` at the top level builds every component; each folder also builds on its own (`make -C module`).
+
