@@ -6,7 +6,8 @@ Windows' Loudness Equalization for PipeWire, reverse engineered from `WMALFXGFXD
   <img src="docs/screenshot.png" alt="The Loudness Equalization window">
 </p>
 
-- **[`module/`](module)**: the PipeWire module and the DSP plugin. It processes every app's playback stream.
+- **[`modules/loudness/`](modules/loudness)**: the PipeWire module and the DSP plugin. It processes every app's playback stream.
+- **[`modules/limiter/`](modules/limiter)**: the output limiter of Windows' audio engine (`AudioEng.dll`), on every playback device. It keeps the boost from clipping.
 - **[`app/`](app)**: an optional window (GTK3) to turn it on or off, globally or per app, and set the release time.
 
 ## Install
@@ -21,7 +22,7 @@ sudo make install
 systemctl --user restart pipewire pipewire-pulse wireplumber
 ```
 
-To install only one part, use `make -C module` or `make -C app`. To uninstall, run `sudo make uninstall` and restart the same services.
+To install only one part, use `make -C modules/loudness`, `make -C modules/limiter` or `make -C app`. To uninstall, run `sudo make uninstall` and restart the same services.
 
 ## Usage
 
@@ -52,7 +53,9 @@ Settings changed at runtime are saved in `~/.local/state/pw-loudness-eq/state.co
 
 ## How it works
 
-The module sets `audioconvert.filter-graph.90` on each app's playback stream, so the plugin runs inside that stream, before its volume and before mixing, like a Windows stream effect.
+The loudness module sets `audioconvert.filter-graph.90` on each app's playback stream, so the plugin runs inside that stream, before its volume and before mixing, like a Windows stream effect.
+
+The limiter module does what Windows' audio engine does on every playback device: after the mix and the software volume, it runs the output through a look-ahead limiter. It's always on, independent of Loudness Equalization, as on Windows.
 
 Not processed: JACK clients, streams with more than 8 channels, and Flatpak apps that use PipeWire directly (those going through PulseAudio are processed).
 
@@ -68,11 +71,21 @@ A broadband automatic gain control. Despite the name, it doesn't equalize the sp
 6. When the target is lower than the current gain, the gain jumps to it instantly. Otherwise it moves toward it by `w = (N/128)·(44100/fs)·0.1^min(r,3)·0.316^(min(r,7)−min(r,3))` per block. At r = 4 that's a time constant of about 4.6 s.
 7. The gain is crossfaded linearly across each half-frame. Latency is N samples.
 
-There's no limiter, so pure tones can go above 0 dBFS (Windows does the same).
+The boost can push pure tones such as a whistle well above full scale; the limiter catches that.
+
+### The limiter
+
+Ported from `CAudioLimiter` in `AudioEng.dll`. `audiodg.exe` puts it on every render device, after its effects, before the device.
+
+1. The output is delayed by L frames (64 at 44.1/48 kHz; 16, 32 or 128 at other rates) to look ahead. That's the device's added latency.
+2. When a frame entering the delay peaks above the tracked peak (initially 0.985), the gain ramps down linearly over those L frames to `0.985 / peak`, reaching it as that frame leaves. All channels share one gain.
+3. The gain only recovers once the signal peaks at half the tracked peak or less: it rises by `e^(2.205/fs)` per frame (about 19 dB/s) while the tracked peak decays by the same factor.
+
+On Windows the device's software volume comes before the limiter; in PipeWire it comes after the device's filter graphs. So the plugin gets the volume of each channel (kept in sync by the module), measures peaks on the signal as it will be after the volume, and applies only its gain. Once PipeWire applies the volume, the result is the same as Windows'. Hardware volume comes after the limiter on both.
 
 ## Development
 
 ```sh
-make check                                         # DSP and plugin tests
-module/build/leq-wav [-r release] in.wav out.wav  # process a file offline
+make check                                              # DSP and plugin tests, both modules
+modules/loudness/build/leq-wav [-r release] in.wav out.wav       # process a file offline
 ```
