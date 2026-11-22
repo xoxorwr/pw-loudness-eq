@@ -1,6 +1,6 @@
 # pw-loudness-eq
 
-Windows' Loudness Equalization, fully decompiled from `WMALFXGFXDSP.dll` and ported to PipeWire. It evens out the volume of each application, so quiet and loud parts play at a similar level.
+Windows' Loudness Equalization for PipeWire, reverse engineered from `WMALFXGFXDSP.dll`. It evens out the volume of each application, so quiet and loud parts play at a similar level.
 
 <p align="center">
   <img src="docs/screenshot.png" alt="The Loudness Equalization window">
